@@ -1,4 +1,5 @@
-name: Build and Push to GHCR
+name: Python Deploy Pipeline
+
 on:
   push:
     branches: ["main"]
@@ -10,12 +11,29 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install .; fi
+
+      - name: Run tests when present
+        shell: bash
+        run: |
+          if [ -d tests ] || [ -d test ]; then pytest || python -m pytest; else echo "No test directory found"; fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -27,20 +45,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # - name: Login to Docker Hub
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: docker.io
-      #     username: ${{ secrets.DOCKER_USERNAME }}
-      #     password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract metadata (tags, labels)
+      - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ghcr.io/${{ github.repository }}
-          tags: latest
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -49,5 +61,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      - name: Send deployment notification
-        run: curl -d "Hi deployed" https://ntfy.pratyay.qzz.io/test
